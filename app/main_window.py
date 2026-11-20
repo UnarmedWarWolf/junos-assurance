@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxL
 from . import exporters
 from .commands import CATALOG, categories, render
 from .config import APP_NAME
-from .parsers import (HEALTH_ORDER, evaluate_optics, fmt_age, parse_descriptions, parse_flaps,
-                      parse_optics, parse_terse)
+from .parsers import (HEALTH_ORDER, evaluate_optics, fmt_age, parse_descriptions, parse_extensive,
+                      parse_flaps, parse_lldp, parse_optics, parse_terse, split_port)
+from .portmap import STATE_LABEL, InterfacePanel, PortMapWidget, legend_widget
 from .ssh_session import CONNECTING, DISCONNECTED, HOPPING, READY, JunosSession
 from .theme import COLORS
 from .widgets import (Card, CliConsole, DashletTable, KpiTile, OutputView, ParamDialog, SettingsDialog,
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow):
         self.session_flaps = {}
         self.last_auto = None          # (name, command, output)
         self.last_refresh = None
+        self.selected_iface = None
 
         self.setWindowTitle(APP_NAME)
         self.resize(1600, 980)
@@ -69,9 +71,14 @@ class MainWindow(QMainWindow):
         side = self._build_sidebar()
         split.addWidget(side)
         split.addWidget(self._build_content())
+        self.detail = InterfacePanel()
+        self.detail.hide()
+        split.addWidget(self.detail)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
-        split.setSizes([310, 1290])
+        split.setStretchFactor(2, 0)
+        split.setSizes([310, 1290, 0])
+        self.main_split = split
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(12, 12, 12, 12)
@@ -298,9 +305,25 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.auto_card)
         bottom.setSizes([820, 470])
 
+        pm = Card("Port Map")
+        pm.add_title_widget(legend_widget())
+        self.portmap = PortMapWidget()
+        self.portmap.port_clicked.connect(self.open_interface)
+        pm_scroll = QScrollArea()
+        pm_scroll.setWidgetResizable(True)
+        pm_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        pm_scroll.setWidget(self.portmap)
+        pm_scroll.setStyleSheet("QScrollArea{background:#FFFFFF;} QScrollArea > QWidget > QWidget{background:#FFFFFF;}")
+        hint = QLabel("Click a port for Interface 360")
+        hint.setObjectName("Muted")
+        pm.body.addWidget(pm_scroll, 1)
+        pm.body.addWidget(hint)
+        pm.outer.setContentsMargins(14, 10, 14, 8)
+
+        vsplit.addWidget(pm)
         vsplit.addWidget(top)
         vsplit.addWidget(bottom)
-        vsplit.setSizes([360, 480])
+        vsplit.setSizes([170, 280, 420])
         col.addWidget(vsplit, 1)
         return w
 
@@ -324,6 +347,9 @@ class MainWindow(QMainWindow):
         self.username.editingFinished.connect(self._username_changed)
         self.hostname.lineEdit().returnPressed.connect(self.do_connect)
         self.pause_mon.toggled.connect(self._pause_toggled)
+        self.detail.close_requested.connect(self.close_interface)
+        self.detail.refresh_requested.connect(self._refresh_interface)
+        self.detail.run_command.connect(self._on_cli_line)
 
     def _load_saved(self):
         c = self.cfg
@@ -464,8 +490,88 @@ class MainWindow(QMainWindow):
         self.session.send_user_line(line)
 
     def _drill_interface(self, iface):
-        self.cli.input.setText(f"show interfaces {iface} extensive")
-        self.cli.input.setFocus()
+        self.open_interface(iface)
+
+    # =============================================================== Interface 360
+    def _port_summary(self, name):
+        hours = int(self.cfg["flap_window_hours"])
+        t = self.terse.get(name, {})
+        s = {"description": self.desc.get(name, ""), "admin": t.get("admin"), "link": t.get("link"),
+             "warn_default": float(self.cfg["rx_warn_default"]),
+             "alarm_default": float(self.cfg["rx_alarm_default"])}
+        f = next((x for x in self.flaps if x["interface"] == name), None)
+        if f:
+            age = f["age"]
+            s["flap_age"] = age
+            s["flap_text"] = fmt_age(age)
+            s["flap_recent"] = age is not None and age <= hours * 3600
+            s["last_flapped"] = f["last_flapped"] + ("" if age is None else f" ({fmt_age(age)})")
+            if not s["admin"]:
+                s["admin"] = "up" if f["admin"].lower().startswith("enabled") else "down"
+                s["link"] = f["link"].lower()
+        o = self.optics.get(name)
+        if o:
+            health, worst, reason = evaluate_optics(o, s["warn_default"], s["alarm_default"])
+            s.update(health=health, health_reason=reason, rx=worst,
+                     tx=min(o["tx"]) if o["tx"] else None, rx_lanes=o["rx"], thr=o["thr"])
+        return s
+
+    def _port_info(self, name):
+        s = self._port_summary(name)
+        if s.get("admin") == "down":
+            state = "disabled"
+        elif s.get("link") == "down":
+            state = "down"
+        elif s.get("link") == "up":
+            state = "warning" if s.get("health") in ("Warning", "Critical", "No Light") else "up"
+        else:
+            state = "unknown"
+        age = s.get("flap_age")
+        dot = "critical" if (age is not None and age < 3600) else ("warning" if s.get("flap_recent") else None)
+        tip = [f"<b style='color:{COLORS['interface']}'>{name}</b>"]
+        if s.get("description"):
+            tip.append(s["description"])
+        tip.append(STATE_LABEL[state])
+        if s.get("rx") is not None:
+            tip.append(f"Rx {s['rx']:.2f} dBm · {s.get('health')}")
+        if s.get("flap_recent"):
+            tip.append(f"Flapped {s.get('flap_text')}")
+        return {"state": state, "dot": dot, "tip": "<br>".join(tip)}
+
+    def _all_ports(self):
+        names = set(self.terse) | set(self.optics) | {f["interface"] for f in self.flaps}
+        return {n for n in names if split_port(n)}
+
+    def open_interface(self, name):
+        self.selected_iface = name
+        self.portmap.set_selected(name)
+        self.detail.show_interface(name, self._port_summary(name), self.session.device_host)
+        if not self.detail.isVisible():
+            self.detail.show()
+            sizes = self.main_split.sizes()
+            self.main_split.setSizes([sizes[0], max(600, sizes[1] - 390), 390])
+        self._fetch_interface(name)
+
+    def _fetch_interface(self, name):
+        s = self.session
+        if not s.is_ready:
+            return
+        s.enqueue(f'show interfaces {name} extensive | match "Physical interface|Description|Speed|MTU|rate|'
+                  f'errors|Errors|transitions|Last flapped" | no-more', background=True, tag="detail",
+                  callback=lambda j, n=name: self.detail.set_extensive(n, parse_extensive(j.output)))
+        s.enqueue(f"show lldp neighbors interface {name} | no-more", background=True, tag="detail",
+                  callback=lambda j, n=name: self.detail.set_lldp(n, parse_lldp(j.output, n)))
+        s.enqueue(f"show log messages | match {name} | last 15 | no-more", background=True, tag="detail",
+                  callback=lambda j, n=name: self.detail.set_logs(n, j.output))
+
+    def close_interface(self):
+        self.detail.hide()
+        self.selected_iface = None
+        self.portmap.set_selected(None)
+
+    def _refresh_interface(self, name):
+        self.detail.show_interface(name, self._port_summary(name), self.session.device_host)
+        self._fetch_interface(name)
 
     # =============================================================== automation
     def all_interfaces(self):
@@ -562,6 +668,8 @@ class MainWindow(QMainWindow):
         self.refresh_label.setText(" · ".join(parts) or "Waiting…")
 
     def _reset_dashboard(self):
+        if hasattr(self, "detail"):
+            self.close_interface()
         self.terse, self.desc, self.flaps, self.optics = {}, {}, [], {}
         self.prev_flap, self.session_flaps = {}, {}
         self.last_refresh = None
@@ -598,6 +706,10 @@ class MainWindow(QMainWindow):
         return flap_rows, down_rows, opt_rows
 
     def _refresh_dashboard(self):
+        self.portmap.set_ports({n: self._port_info(n) for n in self._all_ports()})
+        if getattr(self, "selected_iface", None) and self.detail.isVisible():
+            self.detail.show_interface(self.selected_iface, self._port_summary(self.selected_iface),
+                                       self.session.device_host)
         flap_rows, down_rows, opt_rows = self._dashboard_rows()
         hours = int(self.cfg["flap_window_hours"])
         self.t_flaps.set_rows(flap_rows, f"No flaps in the last {hours} h")

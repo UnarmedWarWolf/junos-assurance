@@ -59,6 +59,18 @@ Steps:
 
 ## Screen layout
 
+* **Port Map:** a front-panel view of the switch, one block per FPC/PIC, with even ports on top and
+  odd ports below like the real faceplate. **Green** = up, **amber** = up but optics are weak,
+  **red** = admin up / link down, **grey** = disabled. A red or amber dot means the port flapped in the
+  last hour or within the flap window. Hover over a port for a summary, or click it to open Interface 360.
+* **Interface 360:** a side panel for one port showing:
+  * admin, link and health status
+  * an Rx light gauge against the optic's own warning and alarm levels, plus Tx and per-lane readings
+  * speed, MTU, traffic rates, input, CRC, framing and output errors, and carrier transitions
+  * the LLDP neighbour
+  * the last 15 log lines for the port
+  * buttons that run the extensive, optics and log commands in the CLI
+  * **Copy ticket note**, which puts a ready-to-paste summary on the clipboard
 * **KPI tiles:** ports up, admin-up/link-down count, recent flaps, optics health.
 * **Flap List:** ports that flapped within the window (24 h by default). Ports that flapped in the last
   hour are marked *Critical*. "Seen" counts flaps detected while the app was open.
@@ -67,7 +79,7 @@ Steps:
   thresholds (with fallback thresholds in Settings). *No Light* means Rx is about −40 dBm.
 * These refresh in the background every 120 s (configurable), or when you click **Refresh now**.
   Background commands run in a queue with your own commands, so the CLI output never gets mixed up.
-* **Double-click** any dashboard row to put `show interfaces <port> extensive` in the CLI.
+* **Double-click** any dashboard row to open that port in Interface 360.
 * **Export…** saves all dashboard tables to one Excel workbook.
 
 ## CLI
@@ -106,5 +118,6 @@ app/parsers.py       parsing for terse / descriptions / flaps / optics
 app/exporters.py     Word and Excel export
 app/theme.py         colours, highlighting rules, stylesheet
 app/widgets.py       tiles, tables, CLI console, dialogs
+app/portmap.py       port map, light gauge, Interface 360 panel
 app/config.py        saved settings and keychain password
 ```

@@ -219,3 +219,93 @@ def strip_command_output(buffer: str, command: str) -> str:
     while lines and not lines[0].strip():
         lines.pop(0)
     return "\n".join(lines)
+
+
+# ------------------------------------------------------- interface detail
+def parse_extensive(text: str) -> dict:
+    """Parse `show interfaces <if> extensive` (optionally | match-filtered) into key counters."""
+    d, section = {}, None
+    for raw in text.splitlines():
+        line = raw.strip()
+        m = _PHYS_RE.search(line)
+        if m:
+            d["admin"], d["link"] = m.group(2).strip(), m.group(3)
+            continue
+        if line.startswith("Description:"):
+            d.setdefault("description", line.split(":", 1)[1].strip())
+            continue
+        m = re.search(r"\bSpeed:\s*([^,\s]+)", line)
+        if m and "speed" not in d:
+            d["speed"] = m.group(1)
+        m = re.search(r"\bMTU:\s*(\d+)", line)
+        if m and "mtu" not in d:
+            d["mtu"] = int(m.group(1))
+        m = re.match(r"(Input|Output) rate\s*:\s*(\d+)\s*bps\s*\((\d+)\s*pps\)", line)
+        if m:
+            p = "in" if m.group(1) == "Input" else "out"
+            d.setdefault(f"{p}_bps", int(m.group(2)))
+            d.setdefault(f"{p}_pps", int(m.group(3)))
+            continue
+        m = re.match(r"(Input|Output) errors\s*:\s*(.*)$", line)
+        if m:
+            section = "in" if m.group(1) == "Input" else "out"
+            if m.group(2).strip().isdigit():
+                d.setdefault(f"{section}_errors", int(m.group(2)))
+            continue
+        m = re.match(r"CRC/Align errors\s+(\d+)\s+(\d+)", line)
+        if m:
+            d["crc_rx"], d["crc_tx"] = int(m.group(1)), int(m.group(2))
+            continue
+        fm = _FLAP_RE.search(line)
+        if fm:
+            d.setdefault("last_flapped", fm.group(1))
+            continue
+        if section and re.match(r"(Errors|Carrier transitions):", line):
+            for k, v in re.findall(r"([A-Za-z][A-Za-z /-]*?):\s*(\d+)", line):
+                d.setdefault(f"{section}_{k.strip().lower()}", int(v))
+    return d
+
+
+def parse_lldp(text: str, iface: str = "") -> dict:
+    """Parse `show lldp neighbors interface <if>` (detail) or the summary table."""
+    d = {}
+    wanted = (("system name", "system"), ("port id", "port_id"), ("port description", "port_desc"),
+              ("chassis id", "chassis"))
+    for line in text.splitlines():
+        if ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        k, v = k.strip().lower(), v.strip()
+        for want, key in wanted:
+            if k.startswith(want) and v and key not in d:
+                d[key] = v
+    if not d and iface:
+        for line in text.splitlines():
+            if line.strip().startswith(iface):
+                cols = re.split(r"\s{2,}", line.strip())
+                if len(cols) >= 5:
+                    d = {"chassis": cols[2], "port_id": cols[3], "system": cols[4]}
+                elif len(cols) == 4:
+                    d = {"chassis": cols[1], "port_id": cols[2], "system": cols[3]}
+    return d
+
+
+def fmt_bps(bps) -> str:
+    if bps is None:
+        return "–"
+    for unit, div in (("Gbps", 1e9), ("Mbps", 1e6), ("kbps", 1e3)):
+        if bps >= div:
+            return f"{bps / div:.2f} {unit}"
+    return f"{int(bps)} bps"
+
+
+_PORT_RE = re.compile(r"^([a-z]+)-(\d+)/(\d+)/(\d+)(?::(\d+))?$", re.I)
+
+
+def split_port(name: str):
+    """'xe-0/0/12' -> ('xe', 0, 0, 12, None); None if not a physical port name."""
+    m = _PORT_RE.match(name)
+    if not m:
+        return None
+    return (m.group(1).lower(), int(m.group(2)), int(m.group(3)), int(m.group(4)),
+            int(m.group(5)) if m.group(5) is not None else None)
