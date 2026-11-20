@@ -534,7 +534,8 @@ class MainWindow(QMainWindow):
 
     # ================================================================ tabs
     def current_tab(self):
-        w = self.tabs.currentWidget()
+        tabs = getattr(self, "tabs", None)       # may be called while the window is still being built
+        w = tabs.currentWidget() if tabs is not None else None
         return w if isinstance(w, DeviceTab) else None
 
     def _on_tab(self, fn):
