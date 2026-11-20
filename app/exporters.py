@@ -2,9 +2,9 @@
 import re
 from datetime import datetime
 
-from .theme import STATUS_HEX, tokenize, status_key
+from .theme import EXPORT_HEX, tokenize, status_key
 
-HEX = {k: v.lstrip("#") for k, v in STATUS_HEX.items()}
+HEX = {k: v.lstrip("#") for k, v in EXPORT_HEX.items()}
 
 
 def _meta_lines(meta: dict):
@@ -67,7 +67,7 @@ def _write_header(ws, title, meta):
 
 
 def _rich_line(line):
-    """Return a CellRichText with coloured runs when openpyxl supports it, else plain text + key."""
+    """Return a CellRichText with colored runs when openpyxl supports it, else plain text + key."""
     parts = tokenize(line)
     if len(parts) <= 1:
         return line, parts[0][1] if parts else None
@@ -84,12 +84,12 @@ def _rich_line(line):
                 font = InlineFont(rFont="Consolas", sz=10)
             blocks.append(TextBlock(font, chunk))
         return CellRichText(blocks), None
-    except Exception:  # openpyxl < 3.1 has no rich text: colour the whole cell instead
+    except Exception:  # openpyxl < 3.1 has no rich text: color the whole cell instead
         return line, status_key(line)
 
 
 def save_text_xlsx(text: str, path: str, title: str = "Junos CLI Session", meta: dict = None):
-    """One CLI line per row, with colour highlighting."""
+    """One CLI line per row, with color highlighting."""
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active

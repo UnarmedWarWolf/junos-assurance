@@ -1,15 +1,15 @@
-"""Junos Assurance – GUI for Junos switches reached through a bastion host.
+"""Junos Assurance – GUI for Junos switches reached through a jump host.
 
 Run:  python3 main.py
 """
 import sys
 
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 from app.config import APP_DIR, APP_NAME, Config
 from app.main_window import MainWindow
-from app.theme import COLORS, STYLESHEET
+from app.theme import apply_theme
 
 
 def main():
@@ -22,15 +22,8 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
-    pal = QPalette()
-    for role, col in ((QPalette.ColorRole.Window, COLORS["page"]), (QPalette.ColorRole.Base, "#FFFFFF"),
-                      (QPalette.ColorRole.AlternateBase, "#FAFBFC"), (QPalette.ColorRole.Text, COLORS["text"]),
-                      (QPalette.ColorRole.WindowText, COLORS["text"]), (QPalette.ColorRole.Button, "#FFFFFF"),
-                      (QPalette.ColorRole.ButtonText, COLORS["text"]), (QPalette.ColorRole.Highlight, COLORS["accent"]),
-                      (QPalette.ColorRole.HighlightedText, "#FFFFFF"), (QPalette.ColorRole.ToolTipBase, "#FFFFFF"),
-                      (QPalette.ColorRole.ToolTipText, COLORS["text"])):
-        pal.setColor(role, QColor(col))
-    app.setPalette(pal)
+    cfg = Config()
+    apply_theme(app, bool(cfg["dark_mode"]))
     font = QFont()
     if sys.platform == "win32":
         font.setFamilies(["Segoe UI", "Arial"])
@@ -39,7 +32,6 @@ def main():
         font.setFamilies(["Helvetica Neue", "Segoe UI", "Arial"])
         font.setPointSize(13 if sys.platform == "darwin" else 10)
     app.setFont(font)
-    app.setStyleSheet(STYLESHEET)
 
     def excepthook(etype, value, tb):   # log unexpected errors instead of failing silently (pythonw/.exe)
         import traceback
@@ -54,7 +46,8 @@ def main():
         QMessageBox.critical(None, APP_NAME, f"Unexpected error (details in {APP_DIR / 'error.log'}):\n\n{value}")
     sys.excepthook = excepthook
 
-    win = MainWindow(Config())
+    app.setQuitOnLastWindowClosed(True)
+    win = MainWindow(cfg)
     win.show()
     sys.exit(app.exec())
 

@@ -407,8 +407,8 @@ class JunosSession(QObject):
             self.status.emit("Login cancelled.")
             self.close_session()
 
-    def send_user_line(self, line: str):
-        """A line typed into the CLI."""
+    def send_user_line(self, line: str, callback=None):
+        """A line typed into the CLI. callback(job) receives the captured output when it finishes."""
         if self.state in (HOPPING, CONNECTING):
             self._send_raw(line + "\n")
             return
@@ -427,7 +427,7 @@ class JunosSession(QObject):
         if line.rstrip().endswith("?"):
             self.enqueue(line.rstrip(), help_query=True, timeout=2)
         else:
-            self.enqueue(line)
+            self.enqueue(line, callback=callback, tag="user")
 
     def interrupt(self):
         self._send_raw("\x03")

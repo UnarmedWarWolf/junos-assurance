@@ -6,31 +6,23 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, Q
 
 from .parsers import fmt_bps, split_port
 from .theme import COLORS
-from .widgets import OutputView
+from .widgets import OutputView, Sparkline, chip, section_label
 
-# Port states -> fill colours
+# Port states -> fill colors ("disabled"/"unknown" follow the theme)
 STATE_FILL = {
     "up": "#34A853",        # link up, healthy
     "warning": "#E0A800",   # link up but optics warning/critical
     "down": "#D0271D",      # admin up, link down
-    "disabled": "#C5CDD6",  # admin down
-    "unknown": "#FFFFFF",   # seen but no state yet
 }
+
+
+def fill_for(state):
+    if state in STATE_FILL:
+        return STATE_FILL[state]
+    return COLORS["port_disabled"] if state == "disabled" else COLORS["panel"]
 STATE_LABEL = {"up": "Up", "warning": "Optics warning", "down": "Admin up · Link down",
                "disabled": "Disabled", "unknown": "Unknown"}
 DOT_COLOR = {"critical": "#D0271D", "warning": "#E0A800"}
-
-
-def chip(text, key=None):
-    """Small rounded status pill."""
-    colors = {"up": ("#E7F6EC", COLORS["up"]), "down": ("#FCE9E8", COLORS["down"]),
-              "warning": ("#FFF6DB", "#9A7400"), "interface": ("#F1EAFB", COLORS["interface"]),
-              None: ("#EEF1F4", COLORS["muted"])}
-    bg, fg = colors.get(key, colors[None])
-    lab = QLabel(text)
-    lab.setStyleSheet(f"background:{bg}; color:{fg}; border-radius:9px; padding:2px 9px; "
-                      f"font-size:11px; font-weight:600;")
-    return lab
 
 
 def legend_widget():
@@ -41,7 +33,7 @@ def legend_widget():
     for st in ("up", "warning", "down", "disabled"):
         sw = QLabel()
         sw.setFixedSize(12, 10)
-        sw.setStyleSheet(f"background:{STATE_FILL[st]}; border-radius:2px; border:1px solid #9AA5B1;")
+        sw.setStyleSheet(f"background:{fill_for(st)}; border-radius:2px; border:1px solid #9AA5B1;")
         lay.addWidget(sw)
         t = QLabel(STATE_LABEL[st].replace("Admin up · ", ""))
         t.setObjectName("Muted")
@@ -139,10 +131,10 @@ class PortMapWidget(QWidget):
         for r, name, num, row in self.rects:
             info = self.ports.get(name, {})
             st = info.get("state", "unknown")
-            fill = QColor(STATE_FILL[st])
+            fill = QColor(fill_for(st))
             if name == self.hover:
                 fill = fill.lighter(112)
-            p.setPen(QPen(QColor("#7D8B99") if st != "unknown" else QColor("#B6C0CA"), 1))
+            p.setPen(QPen(QColor(COLORS["port_outline"]) if st != "unknown" else QColor(COLORS["border"]), 1))
             p.setBrush(fill)
             p.drawRoundedRect(r, 3, 3)
             # inner "cage" line for a bit of realism
@@ -218,10 +210,10 @@ class LightGauge(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = self.width()
         bar = QRectF(8, 8, w - 16, 10)
-        zones = [(self.LO, self.alarm, "#F6D2CF"), (self.alarm, self.warn, "#FBEBB7"),
-                 (self.warn, self.high if self.high is not None else self.HI, "#D5EFDC")]
+        zones = [(self.LO, self.alarm, COLORS["gauge_red"]), (self.alarm, self.warn, COLORS["gauge_amber"]),
+                 (self.warn, self.high if self.high is not None else self.HI, COLORS["gauge_green"])]
         if self.high is not None:
-            zones.append((self.high, self.HI, "#F6D2CF"))
+            zones.append((self.high, self.HI, COLORS["gauge_red"]))
         path = QPainterPath()
         path.addRoundedRect(bar, 5, 5)
         p.setClipPath(path)
@@ -241,7 +233,7 @@ class LightGauge(QWidget):
             return
         v = self.value
         col = COLORS["down"] if v < self.alarm or (self.high is not None and v > self.high) else \
-            ("#B38600" if v < self.warn else COLORS["up"])
+            (COLORS["warning"] if v < self.warn else COLORS["up"])
         x = self._x(v, w)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(col))
@@ -250,17 +242,11 @@ class LightGauge(QWidget):
 
 
 # =============================================================== Interface 360
-def _section(text):
-    lab = QLabel(text.upper())
-    lab.setStyleSheet(f"color:{COLORS['muted']}; font-size:11px; font-weight:700; letter-spacing:0.6px;"
-                      f"padding-top:8px;")
-    return lab
-
-
 class InterfacePanel(QFrame):
     close_requested = Signal()
     refresh_requested = Signal(str)
     run_command = Signal(str)
+    run_playbook = Signal(str, str)      # playbook key, interface
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -274,12 +260,12 @@ class InterfacePanel(QFrame):
         outer.setContentsMargins(0, 0, 0, 0)
 
         head = QFrame()
-        head.setStyleSheet(f"QFrame{{border:none; border-bottom:1px solid {COLORS['border']};}}")
+        head.setObjectName("Rule")
         hl = QVBoxLayout(head)
         hl.setContentsMargins(16, 12, 10, 10)
         row = QHBoxLayout()
         cap = QLabel("INTERFACE 360")
-        cap.setStyleSheet(f"color:{COLORS['muted']}; font-size:10px; font-weight:700; letter-spacing:1px;")
+        cap.setObjectName("Section")
         row.addWidget(cap)
         row.addStretch(1)
         self.btn_refresh = QToolButton()
@@ -296,7 +282,7 @@ class InterfacePanel(QFrame):
         row.addWidget(close)
         hl.addLayout(row)
         self.title = QLabel("–")
-        self.title.setStyleSheet(f"font-size:20px; font-weight:600; color:{COLORS['interface']};")
+        self.title.setStyleSheet("font-size:20px; font-weight:600;")
         hl.addWidget(self.title)
         self.desc = QLabel("")
         self.desc.setWordWrap(True)
@@ -308,15 +294,26 @@ class InterfacePanel(QFrame):
         outer.addWidget(head)
 
         scroll = QScrollArea()
+        scroll.setObjectName("PanelScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         body = QWidget()
-        body.setStyleSheet("background:#FFFFFF;")
+        body.setObjectName("PanelBody")
         self.bl = QVBoxLayout(body)
         self.bl.setContentsMargins(16, 4, 16, 16)
         self.bl.setSpacing(6)
 
-        self.bl.addWidget(_section("Optical light"))
+        self.bl.addWidget(section_label("Troubleshoot"))
+        pb = QGridLayout()
+        pb.setSpacing(6)
+        for i, (key, label) in enumerate((("down", "Why is it down?"), ("flap", "Why is it flapping?"),
+                                          ("errors", "Why errors?"))):
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, k=key: self.name and self.run_playbook.emit(k, self.name))
+            pb.addWidget(b, 0, i)
+        self.bl.addLayout(pb)
+
+        self.bl.addWidget(section_label("Optical light"))
         self.gauge = LightGauge()
         self.bl.addWidget(self.gauge)
         self.optics_text = QLabel("–")
@@ -324,7 +321,15 @@ class InterfacePanel(QFrame):
         self.optics_text.setTextFormat(Qt.TextFormat.RichText)
         self.bl.addWidget(self.optics_text)
 
-        self.bl.addWidget(_section("Traffic & errors"))
+        self.bl.addWidget(section_label("Light history"))
+        self.spark = Sparkline()
+        self.bl.addWidget(self.spark)
+        self.trend_text = QLabel("")
+        self.trend_text.setObjectName("Muted")
+        self.trend_text.setTextFormat(Qt.TextFormat.RichText)
+        self.bl.addWidget(self.trend_text)
+
+        self.bl.addWidget(section_label("Traffic & errors"))
         self.grid = QGridLayout()
         self.grid.setHorizontalSpacing(14)
         self.grid.setVerticalSpacing(4)
@@ -346,19 +351,23 @@ class InterfacePanel(QFrame):
             self.stats[key] = v
         self.grid.setColumnStretch(1, 1)
 
-        self.bl.addWidget(_section("LLDP neighbor"))
+        self.bl.addWidget(section_label("LLDP neighbor"))
         self.lldp_text = QLabel("–")
         self.lldp_text.setWordWrap(True)
         self.lldp_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.bl.addWidget(self.lldp_text)
 
-        self.bl.addWidget(_section("Recent log messages"))
+        self.bl.addWidget(section_label("Recent log messages"))
         self.logs = OutputView(max_blocks=200)
         self.logs.setMinimumHeight(150)
-        self.logs.setStyleSheet(f"border:1px solid {COLORS['border']}; border-radius:4px;")
-        self.bl.addWidget(self.logs)
+        box = QFrame()
+        box.setObjectName("Boxed")
+        bxl = QVBoxLayout(box)
+        bxl.setContentsMargins(0, 0, 0, 0)
+        bxl.addWidget(self.logs)
+        self.bl.addWidget(box)
 
-        self.bl.addWidget(_section("Actions"))
+        self.bl.addWidget(section_label("Actions"))
         acts = QGridLayout()
         acts.setSpacing(6)
         self.btn_ext = QPushButton("Extensive → CLI")
@@ -398,6 +407,7 @@ class InterfacePanel(QFrame):
             self.note_status.setText("")
         self.name, self.summary, self.device = name, summary, device
         self.title.setText(name)
+        self.title.setStyleSheet(f"font-size:20px; font-weight:600; color:{COLORS['interface']};")
         self.desc.setText(summary.get("description") or "No description")
         while self.chips.count():
             it = self.chips.takeAt(0)
@@ -465,6 +475,21 @@ class InterfacePanel(QFrame):
         for v in self.stats.values():
             if v.text() == "…":
                 v.setText("–")
+
+    def set_history(self, name, series, warn=None, alarm=None, trend=None, window_h=24):
+        """series = [(ts, rx, tx)], trend = (first, last, delta, samples) or None"""
+        if name != self.name:
+            return
+        self.spark.set_series([(t, rx) for t, rx, _tx in series], warn, alarm)
+        if trend and trend[3] >= 2:
+            delta = trend[2]
+            col = COLORS["down"] if delta <= -2 else (COLORS["warning"] if delta <= -1 else COLORS["muted"])
+            arrow = "▼" if delta < 0 else ("▲" if delta > 0 else "▶")
+            self.trend_text.setText(f"<span style='color:{col}'><b>{arrow} {abs(delta):.1f} dB</b></span> "
+                                    f"over the last {window_h} h ({trend[3]} samples, "
+                                    f"{trend[0]:.2f} → {trend[1]:.2f} dBm)")
+        else:
+            self.trend_text.setText("Not enough history yet. Samples are saved at every background refresh.")
 
     def set_lldp(self, name, d: dict):
         if name != self.name:

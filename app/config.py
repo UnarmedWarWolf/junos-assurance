@@ -55,7 +55,19 @@ DEFAULTS = {
     "last_save_dir": str(Path.home()),
     "window_geometry": "",
     "command_timeout": 180,
+    # --- appearance / features
+    "dark_mode": False,
+    "nav_page": "connect",          # last open sidebar page ("" = collapsed)
+    "alerts_enabled": True,         # desktop notifications for flaps / optics / link down
+    "session_logging": True,        # write every session to a log file automatically
+    "log_dir": "",                  # blank = Documents/JunosAssurance Logs
+    "history_days": 30,             # keep light-level history this long
+    "trend_hours": 24,              # window used for the Rx trend column
+    "trend_alert_db": 2.0,          # Rx drop (dB) over the window that counts as a degrading trend
 }
+
+HISTORY_DB = APP_DIR / "history.db"
+INVENTORY_FILE = APP_DIR / "inventory.json"
 
 
 class Config:

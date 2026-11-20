@@ -109,15 +109,15 @@ CATALOG: List[Command] = [
     Command("Chassis / Hardware", "Craft interface", "show chassis craft-interface | no-more",
             "Information currently on the craft display / front panel LEDs."),
     Command("Chassis / Hardware", "Routing engine", "show chassis routing-engine | no-more",
-            "Routing Engine status: CPU and memory utilisation, uptime and temperature."),
+            "Routing Engine status: CPU and memory utilization, uptime and temperature."),
     Command("Chassis / Hardware", "System alarms", "show system alarms | no-more",
-            "Software / system alarms (e.g. rescue configuration not set, licence warnings)."),
+            "Software / system alarms (e.g. rescue configuration not set, license warnings)."),
     Command("Chassis / Hardware", "System storage", "show system storage | no-more",
             "Free and used space on the device file systems."),
 
     # -------------------------------------------------------- Layer 2 / Routing
     Command("Layer 2 / Routing", "LLDP neighbors", "show lldp neighbors | no-more",
-            "Directly connected neighbours learned by LLDP – local port, neighbour name and port."),
+            "Directly connected neighbors learned by LLDP – local port, neighbor name and port."),
     Command("Layer 2 / Routing", "Ethernet switching table", "show ethernet-switching table[[ interface {interface}]] | no-more",
             "MAC address table. Optionally limit it to one interface.", [IFACE]),
     Command("Layer 2 / Routing", "Route summary", "show route summary | no-more",
@@ -128,7 +128,7 @@ CATALOG: List[Command] = [
     Command("Layer 2 / Routing", "Forwarding table summary", "show route forwarding-table summary | no-more",
             "Summary of the entries in the kernel forwarding table."),
     Command("Layer 2 / Routing", "OSPF neighbors", "show ospf neighbor | no-more",
-            "OSPF adjacency state for each neighbour."),
+            "OSPF adjacency state for each neighbor."),
     Command("Layer 2 / Routing", "BGP summary", "show bgp summary | no-more",
             "BGP peers with state, uptime and received/accepted prefix counts."),
 
